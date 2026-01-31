@@ -3,8 +3,8 @@ import os
 
 # ================= CONFIG ================= #
 
-VT_API_KEY = "ca55913f8826e1829d4d69c79df722c649e750f27a655d50797a5a00c1734e1b"
-ABUSEIPDB_API_KEY = "6ccb99f95d89bf1b64a595c75df7b0bc3ff62a07047fb5c63384630f4d45bd091d0dd70cd1add207"
+VT_API_KEY = "PUT_YOUR_VT_KEY_HERE"
+ABUSEIPDB_API_KEY = "PUT_YOUR_ABUSEIPDB_KEY_HERE"
 
 VT_BASE = "https://www.virustotal.com/api/v3"
 
