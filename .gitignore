@@ -1,23 +1,10 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.env
+node_modules/
 venv/
-.venv/
-
-# Data (DO NOT UPLOAD EMAILS)
-data/
-data/benign/
-data/vectors/
-
-# Reports
-reports/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
+__pycache__/
+.env
+*.pyc
+*.db
+dist/
+build/
 .vscode/
+.idea/
