@@ -7,7 +7,7 @@ sys.path.insert(0, BASE_DIR)
 from core.whois_lookup import get_whois
 
 # 🔴 Test with a known domain
-TEST_DOMAIN = "google.com"
+TEST_DOMAIN = "http://br-icloud.com.br"
 
 result = get_whois(TEST_DOMAIN)
 

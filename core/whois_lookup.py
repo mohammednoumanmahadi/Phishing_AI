@@ -1,12 +1,6 @@
-import socket
 import whois
 
 def get_whois(target):
-    """
-    Perform WHOIS lookup for domain or IP
-    Returns dict safe for GUI / LLM usage
-    """
-
     result = {
         "query": target,
         "domain_name": None,
@@ -25,8 +19,14 @@ def get_whois(target):
 
         result["domain_name"] = str(w.domain_name)
         result["registrar"] = w.registrar
-        result["creation_date"] = str(w.creation_date)
-        result["expiration_date"] = str(w.expiration_date)
+
+        # fixed: creation_date can be a list — always take first value
+        cd = w.creation_date
+        result["creation_date"] = str(cd[0] if isinstance(cd, list) else cd)
+
+        ed = w.expiration_date
+        result["expiration_date"] = str(ed[0] if isinstance(ed, list) else ed)
+
         result["name_servers"] = list(w.name_servers) if w.name_servers else []
         result["country"] = w.country
         result["org"] = w.org

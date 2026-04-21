@@ -4,7 +4,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from core.email_analyzer import analyze_eml
 
 # 🔴 CHANGE THIS PATH to a REAL .eml file you have
-TEST_EML = r"C:\Users\moham\OneDrive\Desktop\AI\Phishing_AI\data\sample-4.eml"
+TEST_EML = r"C:\Users\moham\OneDrive\Desktop\AI\Phishing_AI\data\sample-5.eml"
 
 if not os.path.exists(TEST_EML):
     print("❌ Test EML file not found:", TEST_EML)

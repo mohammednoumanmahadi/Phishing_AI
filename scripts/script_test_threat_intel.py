@@ -8,10 +8,10 @@ from core.threat_intel import (
 )
 
 print("\n=== IP TEST ===")
-print(check_ip_reputation("218.157.171.60"))
+print(check_ip_reputation("185.220.101.1"))
 
 print("\n=== URL TEST ===")
-print(check_vt_url("www.linkedin.com"))
+print(check_vt_url("http://br-icloud.com.br/"))
 
 print("\n=== HASH TEST ===")
 print(check_file_hash("44d88612fea8a8f36de82e1278abb02f"))

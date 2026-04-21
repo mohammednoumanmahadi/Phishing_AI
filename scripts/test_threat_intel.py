@@ -1,126 +1,34 @@
-import requests
+import sys
 import os
 
-# ================= CONFIG ================= #
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-VT_API_KEY = "ca55913f8826e1829d4d69c79df722c649e750f27a655d50797a5a00c1734e1b"
-ABUSEIPDB_API_KEY = "6ccb99f95d89bf1b64a595c75df7b0bc3ff62a07047fb5c63384630f4d45bd091d0dd70cd1add207"
+from core.threat_intel import (
+    check_ip_reputation,
+    check_vt_url,
+    check_file_hash
+)
 
-VT_BASE = "https://www.virustotal.com/api/v3"
+# ---------------- TEST IP ---------------- #
 
-VT_HEADERS = {
-    "x-apikey": VT_API_KEY
-}
+test_ip = "185.220.101.1"
 
-ABUSE_HEADERS = {
-    "Key": ABUSEIPDB_API_KEY,
-    "Accept": "application/json"
-}
+print("\n=== Testing IP Reputation ===")
+ip_result = check_ip_reputation(test_ip)
+print(ip_result)
 
-# ================= IP REPUTATION ================= #
+# ---------------- TEST URL ---------------- #
 
-def check_ip_reputation(ip):
-    if not ip:
-        return {"error": "No IP provided"}
+test_url = "br-icloud.com.br"
 
-    result = {
-        "ip": ip,
-        "abuse_confidence": 0,
-        "is_malicious": False,
+print("\n=== Testing URL Reputation ===")
+url_result = check_vt_url(test_url)
+print(url_result)
 
-        # Enrichment
-        "country": None,
-        "asn": None,
-        "asn_owner": None,
-        "network": None,
+# ---------------- TEST HASH ---------------- #
 
-        "error": None
-    }
+test_hash = "44d88612fea8a8f36de82e1278abb02f"
 
-    try:
-        # AbuseIPDB
-        r = requests.get(
-            "https://api.abuseipdb.com/api/v2/check",
-            headers=ABUSE_HEADERS,
-            params={"ipAddress": ip, "maxAgeInDays": 90},
-            timeout=10
-        )
-
-        if r.status_code == 200:
-            data = r.json()["data"]
-            result["abuse_confidence"] = data.get("abuseConfidenceScore", 0)
-            result["is_malicious"] = result["abuse_confidence"] > 50
-
-        # VirusTotal enrichment
-        vt = requests.get(
-            f"{VT_BASE}/ip_addresses/{ip}",
-            headers=VT_HEADERS,
-            timeout=10
-        )
-
-        if vt.status_code == 200:
-            attrs = vt.json()["data"]["attributes"]
-            result["country"] = attrs.get("country")
-            result["asn"] = attrs.get("asn")
-            result["asn_owner"] = attrs.get("as_owner")
-            result["network"] = attrs.get("network")
-
-    except Exception as e:
-        result["error"] = str(e)
-
-    return result
-
-# ================= URL / DOMAIN ================= #
-
-def check_vt_url(url):
-    if not url:
-        return {"error": "No URL provided"}
-
-    try:
-        encoded = requests.utils.quote(url, safe="")
-        r = requests.get(
-            f"{VT_BASE}/urls/{encoded}",
-            headers=VT_HEADERS,
-            timeout=10
-        )
-
-        if r.status_code != 200:
-            return {"malicious": False, "error": "VT lookup failed"}
-
-        stats = r.json()["data"]["attributes"]["last_analysis_stats"]
-
-        return {
-            "url": url,
-            "malicious": stats["malicious"] > 0,
-            "stats": stats
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
-
-# ================= FILE HASH ================= #
-
-def check_file_hash(hash_value):
-    if not hash_value:
-        return {"error": "No hash provided"}
-
-    try:
-        r = requests.get(
-            f"{VT_BASE}/files/{hash_value}",
-            headers=VT_HEADERS,
-            timeout=10
-        )
-
-        if r.status_code != 200:
-            return {"malicious": False, "error": "VT lookup failed"}
-
-        stats = r.json()["data"]["attributes"]["last_analysis_stats"]
-
-        return {
-            "hash": hash_value,
-            "malicious": stats["malicious"] > 0,
-            "stats": stats
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
+print("\n=== Testing File Hash Reputation ===")
+hash_result = check_file_hash(test_hash)
+print(hash_result)

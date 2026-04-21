@@ -1,114 +1,229 @@
 import sys
 import os
 
-# Add project root (Phishing_AI) to Python path
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, PROJECT_ROOT)
+# make sure Python can find the core/ folder
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
-from core.email_analyzer import analyze_eml
-from core.whois_lookup import get_whois
-from core.threat_intel import reputation_score
-from core.risk_engine import calculate_risk
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+import tempfile
+import shutil
+
+from core.pipeline import run_pipeline
 from core.llm_report import generate_report
 from core.pdf_report import generate_pdf
-import os
+from core.database import (
+    get_all_scans,
+    get_scan_by_id,
+    get_dashboard_stats,
+    get_connection,
+    init_db
+)
 
-REPORT_DIR = os.path.join(os.path.dirname(__file__), "../data/reports")
-os.makedirs(REPORT_DIR, exist_ok=True)
+# ─────────────────────────────────────────
+#  Create the FastAPI app
+# ─────────────────────────────────────────
 
-def browse_email():
-    file_path = filedialog.askopenfilename(filetypes=[("EML files", "*.eml")])
-    if file_path:
-        process_email(file_path)
+app = FastAPI(title="Phishing AI", version="1.0")
 
-def process_email(file_path):
+# CORS — this allows your React frontend (running on port 5173)
+# to talk to your FastAPI backend (running on port 8000)
+# Without this the browser will block all requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# make sure DB and cache tables exist on startup
+init_db()
+
+# ─────────────────────────────────────────
+#  ENDPOINT 1 — Health check
+#  GET /api/health
+#  Just confirms the server is running
+# ─────────────────────────────────────────
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
+# ─────────────────────────────────────────
+#  ENDPOINT 2 — Dashboard stats
+#  GET /api/stats
+#  Returns total scans, malicious count etc
+#  Used by the overview dashboard cards
+# ─────────────────────────────────────────
+
+@app.get("/api/stats")
+def stats():
+    return get_dashboard_stats()
+
+# ─────────────────────────────────────────
+#  ENDPOINT 3 — All historical scans
+#  GET /api/scans
+#  Returns list of all past scans
+#  Used by the history table page
+# ─────────────────────────────────────────
+
+@app.get("/api/scans")
+def all_scans():
+    return get_all_scans()
+
+# ─────────────────────────────────────────
+#  ENDPOINT 4 — Single scan detail
+#  GET /api/scan/{id}
+#  Returns full detail for one scan
+#  Used when user clicks a row in history
+# ─────────────────────────────────────────
+
+@app.get("/api/scan/{scan_id}")
+def single_scan(scan_id: int):
+    result = get_scan_by_id(scan_id)
+    if not result["scan"]:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    return result
+
+# ─────────────────────────────────────────
+#  ENDPOINT 5 — Upload and scan email
+#  POST /api/scan
+#  Accepts .eml file, runs full pipeline
+#  Returns risk score, findings, SOC report
+#  This is the main feature endpoint
+# ─────────────────────────────────────────
+
+@app.post("/api/scan")
+async def scan_email(file: UploadFile = File(...)):
+
+    # only accept .eml files
+    if not file.filename.endswith(".eml"):
+        raise HTTPException(status_code=400, detail="Only .eml files are supported")
+
+    # save uploaded file to a temp location so pipeline can read it
+    # we use tempfile so it gets cleaned up automatically
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".eml") as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
     try:
-        # Step 1: Analyze email
-        email_result = analyze_eml(file_path)
+        # run the full pipeline — this is where all the magic happens
+        result = run_pipeline(tmp_path)
 
-        # Step 2: WHOIS info
-        whois_result = get_whois(email_result["from_domain"])
-
-        # Step 3: Threat intel scoring
-        ip_score = reputation_score(email_result["sender_ip"])
-        domain_score = reputation_score(email_result["from_domain"])
-        url_scores = sum(reputation_score(u) for u in email_result["links"])
-        attachment_scores = sum(reputation_score(a["sha256"]) for a in email_result["attachments"])
-
-        total_score = ip_score + domain_score + url_scores + attachment_scores
-        risk_level = calculate_risk([ip_score, domain_score, url_scores, attachment_scores])
-
-        # Step 4: Prepare context for LLM
-        context = {
-            "email": email_result,
-            "whois": whois_result,
-            "threat_intel": {
-                "ip_score": ip_score,
-                "domain_score": domain_score,
-                "url_scores": url_scores,
-                "attachment_scores": attachment_scores,
-                "risk_level": risk_level
+        # build a clean response for the frontend
+        return {
+            "scan_id":        result["scan_id"],
+            "email":          result["email"],
+            "risk":           result["risk"],
+            "soc_report":     result["soc_report"],
+            "intel": {
+                "ip":          result["intel"]["ip"],
+                "domain":      result["intel"]["domain"],
+                "urls":        result["intel"]["urls"],
+                "attachments": result["intel"]["attachments"],
+                "whois":       result["intel"]["whois"],
             }
         }
 
-        # Step 5: Generate LLM report
-        llm_text = generate_report(context)
-
-        # Step 6: Generate PDF
-        pdf_file = os.path.join(REPORT_DIR, f"{email_result['file']}_report.pdf")
-        generate_pdf(llm_text, pdf_file)
-
-        # Step 7: Display in GUI
-        display_result(email_result, whois_result, risk_level, llm_text, pdf_file)
-
-        messagebox.showinfo("✅ Success", f"Report generated and saved:\n{pdf_file}")
-
     except Exception as e:
-        messagebox.showerror("Error", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
-def display_result(email_result, whois_result, risk_level, llm_text, pdf_file):
-    txt_output.config(state="normal")
-    txt_output.delete(1.0, tk.END)
+    finally:
+        # always clean up the temp file
+        os.unlink(tmp_path)
 
-    txt_output.insert(tk.END, f"File: {email_result['file']}\n")
-    txt_output.insert(tk.END, f"Subject: {email_result['subject']}\n")
-    txt_output.insert(tk.END, f"From: {email_result['from_email']}\n")
-    txt_output.insert(tk.END, f"Domain: {email_result['from_domain']}\n")
-    txt_output.insert(tk.END, f"Return-Path: {email_result['return_path']}\n")
-    txt_output.insert(tk.END, f"Sender IP: {email_result['sender_ip']}\n")
-    txt_output.insert(tk.END, f"Risk Level: {risk_level}\n\n")
+# ─────────────────────────────────────────
+#  ENDPOINT 6 — Generate LLM report
+#  POST /api/report/{scan_id}
+#  Runs Mistral on the saved scan data
+#  Returns the full SOC narrative report
+# ─────────────────────────────────────────
 
-    txt_output.insert(tk.END, "--- WHOIS ---\n")
-    for k, v in whois_result.items():
-        txt_output.insert(tk.END, f"{k}: {v}\n")
+@app.post("/api/report/{scan_id}")
+def generate_llm_report(scan_id: int):
+    scan_data = get_scan_by_id(scan_id)
+    if not scan_data["scan"]:
+        raise HTTPException(status_code=404, detail="Scan not found")
 
-    txt_output.insert(tk.END, "\n--- Links ---\n")
-    for link in email_result["links"]:
-        txt_output.insert(tk.END, f"{link}\n")
+    try:
+        report_text = generate_report(scan_data)
+        return {"scan_id": scan_id, "report": report_text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}")
 
-    txt_output.insert(tk.END, "\n--- Attachments ---\n")
-    for att in email_result["attachments"]:
-        txt_output.insert(tk.END, f"{att['filename']} | SHA256: {att['sha256']}\n")
+# ─────────────────────────────────────────
+#  ENDPOINT 7 — Download PDF report
+#  GET /api/pdf/{scan_id}
+#  Generates and returns a PDF file
+# ─────────────────────────────────────────
 
-    txt_output.insert(tk.END, "\n--- Body Preview ---\n")
-    txt_output.insert(tk.END, email_result["body"][:1000] + "\n")
+@app.get("/api/pdf/{scan_id}")
+def download_pdf(scan_id: int):
+    scan_data = get_scan_by_id(scan_id)
+    if not scan_data["scan"]:
+        raise HTTPException(status_code=404, detail="Scan not found")
 
-    txt_output.insert(tk.END, "\n--- LLM Summary / Recommendations ---\n")
-    txt_output.insert(tk.END, llm_text[:2000] + "\n")  # show first 2000 chars
+    try:
+        # generate LLM report text first
+        report_text = generate_report(scan_data)
+        # convert to PDF
+        pdf_path = generate_pdf(report_text)
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename=f"Phishing_Report_{scan_id}.pdf"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    txt_output.insert(tk.END, f"\nFull PDF saved at:\n{pdf_file}\n")
-    txt_output.config(state="disabled")
+# ─────────────────────────────────────────
+#  ENDPOINT 8 — IOC tracker
+#  GET /api/iocs
+#  Returns all malicious IPs, URLs, domains
+#  aggregated across all scans
+#  Used by the IOC tracker page
+# ─────────────────────────────────────────
 
-# GUI setup
-root = tk.Tk()
-root.title("AI Phishing Email Analyzer")
+@app.get("/api/iocs")
+def get_iocs():
+    conn = get_connection()
 
-btn_browse = tk.Button(root, text="Browse EML & Analyze", command=browse_email, bg="blue", fg="white")
-btn_browse.pack(pady=10)
+    # malicious IPs with how many times seen
+    ips = conn.execute("""
+        SELECT ip, country, asn_owner,
+               abuse_confidence,
+               COUNT(*) as seen_in_scans
+        FROM ip_findings
+        WHERE is_malicious = 1
+        GROUP BY ip
+        ORDER BY seen_in_scans DESC
+    """).fetchall()
 
-txt_output = scrolledtext.ScrolledText(root, width=120, height=40, state="disabled")
-txt_output.pack(padx=10, pady=10)
+    # malicious URLs with count
+    urls = conn.execute("""
+        SELECT url, detections,
+               COUNT(*) as seen_in_scans
+        FROM url_findings
+        WHERE malicious = 1
+        GROUP BY url
+        ORDER BY seen_in_scans DESC
+    """).fetchall()
 
-root.mainloop()
+    # malicious attachments with count
+    hashes = conn.execute("""
+        SELECT filename, sha256, detections,
+               COUNT(*) as seen_in_scans
+        FROM attachment_findings
+        WHERE malicious = 1
+        GROUP BY sha256
+        ORDER BY seen_in_scans DESC
+    """).fetchall()
+
+    conn.close()
+
+    return {
+        "malicious_ips":   [dict(r) for r in ips],
+        "malicious_urls":  [dict(r) for r in urls],
+        "malicious_hashes": [dict(r) for r in hashes]
+    }
