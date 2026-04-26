@@ -1,0 +1,17 @@
+# Email parsing
+eml-parser==1.17.5
+mail-parser==3.15.0
+
+# LLM / Ollama
+ollama==0.1.8
+langchain==0.1.20
+langchain-community==0.0.38
+
+# Threat Intelligence
+requests==2.31.0
+shodan==1.31.1
+
+# Utilities
+python-dotenv==1.0.1
+rich==13.7.1
+click==8.1.7
